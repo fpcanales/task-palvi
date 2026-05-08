@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: palvi
+      POSTGRES_PASSWORD: palvi
+      POSTGRES_DB: palvi
+    ports:
+      - "5433:5432"
+    volumes:
+      - palvi_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U palvi -d palvi"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://palvi:palvi@db:5432/palvi
+      JWT_SECRET: "dev-secret-change-me"  # DEV ONLY — override in prod via secrets manager or .env
+      # FORCE_RESEED: "true"   # uncomment to wipe + re-import on next startup
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    environment:
+      VITE_API_PROXY: http://api:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+      - ./frontend/tsconfig.json:/app/tsconfig.json
+    depends_on:
+      - api
+
+volumes:
+  palvi_db:
