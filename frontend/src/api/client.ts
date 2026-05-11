@@ -1,6 +1,10 @@
 import type { Alarm, AlarmInput, Dataset, DatasetListItem, LoginInput, LoginResponse, User } from "../types";
 
-const BASE = "/api";
+// In dev, VITE_API_URL is unset → BASE is "/api" and Vite proxies it.
+// In prod, VITE_API_URL is the public API origin (build-time) → BASE is "<origin>/api".
+const API_ORIGIN = (import.meta.env.VITE_API_URL ?? "").replace(/\/+$/, "");
+const BASE = API_ORIGIN ? `${API_ORIGIN}/api` : "/api";
+
 const TOKEN_KEY = "palvi.token";
 
 function getToken(): string | null {

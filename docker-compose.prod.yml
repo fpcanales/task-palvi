@@ -1,0 +1,62 @@
+# Production compose for Coolify + Caddy.
+# No host ports exposed. Caddy enters the services through Docker's internal network.
+#
+# Required env vars (Coolify project settings or .env):
+#   POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+#   JWT_SECRET            — generate with: openssl rand -base64 48
+#   CORS_ORIGINS          — CSV of allowed frontend origins (e.g. https://palvi.example.cl)
+#   VITE_API_URL          — public URL of the API (build-time arg for Vite)
+#
+# Optional:
+#   API_WORKERS           — uvicorn workers (default 2)
+#   FORCE_RESEED          — "true" to wipe + re-import metrics.json on next startup
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    expose:
+      - "5432"
+    volumes:
+      - palvi_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.prod
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      API_WORKERS: ${API_WORKERS:-2}
+      FORCE_RESEED: ${FORCE_RESEED:-}
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+    restart: unless-stopped
+    expose:
+      - "80"
+    depends_on:
+      - api
+
+volumes:
+  palvi_db:

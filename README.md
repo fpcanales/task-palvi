@@ -61,6 +61,44 @@ Descomentá `# FORCE_RESEED: "true"` en `docker-compose.yml` (servicio `api`), c
 6. **Exportar CSV** descarga el rango activo como CSV (compatible con Excel).
 7. **Salir** en el header.
 
+## Deployment (Coolify + Caddy)
+
+El repo trae dos compose files:
+
+| Archivo | Uso |
+| ------- | --- |
+| `docker-compose.yml` | desarrollo local (Vite dev server, bind mounts, credenciales dev) |
+| `docker-compose.prod.yml` | producción: nginx sirviendo `dist/`, sin bind mounts, todo parametrizado por env, `expose` interno (no `ports` al host) |
+
+**Simular producción local:**
+
+```bash
+cp .env.example .env       # ajustá las variables
+docker compose -f docker-compose.prod.yml --env-file .env up --build
+```
+
+**Variables que Coolify (o `.env`) tiene que setear:**
+
+| Variable | Para qué |
+| -------- | -------- |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | credenciales Postgres |
+| `JWT_SECRET` | secreto HS256 — generar con `openssl rand -base64 48` |
+| `CORS_ORIGINS` | CSV de orígenes permitidos (ej. `https://palvi.example.cl`) |
+| `VITE_API_URL` | URL pública del API — **build-time**, Vite la inyecta al hacer `npm run build` |
+| `API_WORKERS` *(opcional)* | uvicorn workers, default 2 |
+| `FORCE_RESEED` *(opcional)* | `true` para re-importar `metrics.json` en el próximo boot |
+
+**Por qué `VITE_API_URL` es build-time:** Vite resuelve `import.meta.env.*` cuando compila el bundle, no en runtime. Si cambiás la URL del API hay que rebuildear la imagen `web` (Coolify lo hace solo al redeployar). El `frontend/Dockerfile.prod` recibe la variable como `ARG` y la propaga al `npm run build`.
+
+**Coolify setup:**
+
+1. Conectar el repo, elegir el Docker Compose build pack y apuntar al `docker-compose.prod.yml`.
+2. Setear las env vars del cuadro de arriba en el panel del proyecto.
+3. Asignar un subdominio al servicio `web` (puerto `80`) y otro al `api` (puerto `8000`). Caddy entra por la red interna de Docker (no hace falta `ports`).
+4. Asegurarse que `VITE_API_URL` apunta al subdominio del `api`, y que `CORS_ORIGINS` incluye el subdominio del `web`.
+
+**Nota sobre el primer deploy:** el lifespan del backend siembra el admin, las alarmas y los 365×11×4 metric values al primer boot. Esa rutina chequea "is empty?" antes de insertar y **no es concurrency-safe**. Con `API_WORKERS=2` y DB vacía, los dos workers pueden correr la verificación a la vez y el segundo pegar contra UNIQUE. Si el cold-start falla, bajá `API_WORKERS=1`, redeployá, y una vez sembrado podés volver a `2` sin problemas. En boots subsiguientes la data ya está, no hay race.
+
 ## Decisiones técnicas
 
 **Stack.** React + TypeScript + Vite (lo que pide el brief). Backend FastAPI + Postgres + Docker — decisión deliberada para demostrar pensamiento full-stack y aislar la lógica de dominio (ingest, validación, reglas) de la presentación. Sé que para 668 KB de JSON estático un backend es over-engineering, pero el brief evalúa decisiones y prefiero defenderla.
